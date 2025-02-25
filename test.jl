@@ -55,6 +55,7 @@ end
 
 struct CostFn
   vmax_agent::Float64
+  inf_val::Float64
 end
 
 function (f::CostFn)(points::Matrix{Float64})
@@ -62,7 +63,7 @@ function (f::CostFn)(points::Matrix{Float64})
   travel_times = dists / f.vmax_agent
 
   req_travel_times = (points[:, 1] .- points[:, 1]')'
-  dists[travel_times .> req_travel_times] .= Inf
+  dists[travel_times .> req_travel_times] .= f.inf_val
 
   # Assume the first point is the depot
   dists[:, 1] .= 0
@@ -76,14 +77,14 @@ function (f::CostFn)(points1::Matrix{Float64}, points2::Matrix{Float64})
 
   req_travel_times_forward = (points2[:, 1] .- points1[:, 1]')'
   dists_forward = copy(dists)
-  dists_forward[travel_times .> req_travel_times_forward] .= Inf
+  dists_forward[travel_times .> req_travel_times_forward] .= f.inf_val
 
   # Assume if the time equals zero, the point is the depot
   dists_forward[:, points2[:, 1] .== 0.] .= 0.
 
   req_travel_times_backward = -req_travel_times_forward'
   dists_backward = copy(dists')
-  dists_backward[travel_times' .> req_travel_times_backward] .= Inf
+  dists_backward[travel_times' .> req_travel_times_backward] .= f.inf_val
 
   # Assume if the time equals zero, the point is the depot
   dists_backward[:, points1[:, 1] .== 0.] .= 0.
@@ -107,6 +108,7 @@ function instance_parser(instance_path::String)
   end
   depot_pos = npzread(instance_path*"/depot_pos.npy")
   vmax_agent = npzread(instance_path*"/vmax_agent.npy")
+  inf_val = vmax_agent*maximum(tws[:, 2])
 
   sets = Vector{Function}()
   depot_set(num_samples) = Matrix(cat(0., depot_pos, dims=1)')
@@ -118,16 +120,17 @@ function instance_parser(instance_path::String)
     push!(sets, wrapped_fn)
   end
 
-  cost_fn = CostFn(vmax_agent)
+  cost_fn = CostFn(vmax_agent, inf_val)
   wrapped_cost_fn(points1, points2) = cost_fn(points1, points2)
   wrapped_cost_fn(points) = cost_fn(points)
 
-  return sets, wrapped_cost_fn
+  return sets, wrapped_cost_fn, inf_val
 end
 
-instance_path = expanduser("~/catkin_ws/src/mapf/data/02_24_2025/mt_tsp_clns_test_instances/targ2_win108_random_seed0_occprob0.0_vmaxa5.0_2win_rad0/") # TODO: add an actual instance folder here
-ARGS = [instance_path, "-output=custom.tour", "-verbose=3", "-mode=fast"]
-sets, cost_fn = instance_parser(instance_path)
+# instance_path = expanduser("~/catkin_ws/src/mapf/data/02_24_2025/mt_tsp_clns_test_instances/targ2_win108_random_seed0_occprob0.0_vmaxa5.0_2win_rad0/")
+instance_path = expanduser("~/catkin_ws/src/mapf/data/02_24_2025/mt_tsp_clns_test_instances/targ200_win108_random_seed0_occprob0.0_vmaxa5.0_2win_rad0/")
+ARGS = [instance_path, "-output=custom.tour", "-verbose=3", "-mode=fast", "-trials=1"]
+sets, cost_fn, inf_val = instance_parser(instance_path)
 # dists_forward, dists_backward = cost_fn(sets[1](1), sets[2](1)[1:1, :])
 # display(dists_forward)
 # display(dists_backward)

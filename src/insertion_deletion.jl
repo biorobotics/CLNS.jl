@@ -183,7 +183,7 @@ function randpdf_insertion!(tour::Tour, sets_to_insert::Array{Int64,1},
       if best_tour_idx != -1
         for i = 1:length(sets_to_insert)
           set = sets_to_insert[i]
-          if cost_dict.set_to_set_point[set, best_tour_idx] < mindist[i]
+          if cost_dict.set_to_tour_point[set, best_tour_idx] < mindist[i]
             mindist[i] = cost_dict.set_to_tour_point[set, best_tour_idx]
           end
         end
@@ -194,9 +194,11 @@ function randpdf_insertion!(tour::Tour, sets_to_insert::Array{Int64,1},
       if noise.name == "subset"
         best_set_point_idx, best_tour_idx = insert_subset_lb(tour, size(samples_per_set[set_index], 1), nearest_set,
                                                              noise.value, cost_dict)
+        @assert(best_tour_idx > 0)
       else
         best_set_point_idx, best_tour_idx =
             insert_lb(tour, size(samples_per_set[set_index], 1), nearest_set, noise.value, cost_dict)
+        @assert(best_tour_idx > 0)
       end
       prev_tour_idx = prev_tour(tour, best_tour_idx)
       insert!(tour, best_tour_idx, samples_per_set[set_index][best_set_point_idx, :], sets_to_insert[set_index], cost_dict.tour_point_to_set_point[prev_tour_idx, nearest_set, best_set_point_idx], cost_dict.set_point_to_tour_point[nearest_set, best_set_point_idx, best_tour_idx])
@@ -206,7 +208,7 @@ function randpdf_insertion!(tour::Tour, sets_to_insert::Array{Int64,1},
       splice!(samples_per_set, set_index)
       splice!(mindist, set_index)
       if length(samples_per_set) != 0
-        update_cost_dict!(cost_dict, cost_fn, samples_per_set, best_tour_idx, tour[best_tour_idx])
+        update_cost_dict!(cost_dict, cost_fn, samples_per_set, best_tour_idx, tour[best_tour_idx], sets_to_insert)
       end
     end
 end
@@ -240,7 +242,7 @@ function cheapest_insertion!(tour::Tour, sets_to_insert::Array{Int64,1},
     splice!(sets_to_insert, set_index)
     splice!(samples_per_set, set_index)
     if length(samples_per_set) != 0
-      update_cost_dict!(cost_dict, cost_fn, samples_per_set, best_tour_idx, tour[best_tour_idx])
+      update_cost_dict!(cost_dict, cost_fn, samples_per_set, best_tour_idx, tour[best_tour_idx], sets_to_insert)
     end
   end
 end
@@ -291,6 +293,7 @@ end
 
 		for set_point_idx=1:num_samples_for_set
       insert_cost = cost_dict.tour_point_to_set_point[prev_i, setind, set_point_idx] + cost_dict.set_point_to_tour_point[setind, set_point_idx, i] - tour.cost_seq[prev_i]
+      # @assert(!isnan(insert_cost))
       if insert_cost < best_cost
 				best_cost = insert_cost
 				best_set_point_idx = set_point_idx
@@ -306,12 +309,12 @@ end
 
 """build tour from scratch on a cold restart"""
 function initial_tour!(lowest::Tour, sets::Vector{Function}, cost_fn::Function,
-                       trial_num::Int64, param::Dict{Symbol,Any}, stop_time::Float64)
+                       trial_num::Int64, param::Dict{Symbol,Any}, stop_time::Float64, inf_val::Float64)
 	sets_to_insert = collect(1:param[:num_sets])
 	best = Tour(zeros(0, 0), Int64[], Float64[], typemax(Float64))
 
 	if true # param[:init_tour] == "dag_dfs"
-    sample_then_dag_dfs!(best, sets, cost_fn, stop_time)
+    sample_then_dag_dfs!(best, sets, cost_fn, stop_time, inf_val)
 	elseif param[:init_tour] == "rand" && (trial_num > 1) && (rand() < 0.5)
 		random_initial_tour!(best.tour, sets, cost_fn)
 	else
@@ -423,12 +426,12 @@ function distance_removal!(tour::Tour, cost_fn::Function,
 
     while length(deleted_sets) < num_to_remove
         # pick a random point from the set of deleted vertices
-        seed_point = rand(deleted_vertices)
-        # find closest vertex to the seed vertex that's still in the tour
-        mindist = zeros(Int64, length(tour))
+        seed_point = rand(deleted_points)
+        # find closest point to the seed point that's still in the tour
+        mindist = zeros(Float64, length(tour))
         for i = 1:length(tour)
-          # Should be able to reuse something here
-          mindist[i] = min(cost_fn(seed_point', tour[i]'), cost_fn(tour[i], seed_vertex))
+          # TODO: should be able to reuse cost computation here
+          mindist[i] = min(cost_fn(seed_point, tour[i]), cost_fn(tour[i], seed_point))
         end
         del_index = pdf_select(mindist, power)
         push!(deleted_sets, tour.set_seq[del_index])
@@ -450,15 +453,34 @@ function worst_vertices(tour::Tour, cost_fn::Function)
     removal_cost = zeros(Float64, length(tour))
     @inbounds for i = 1:length(tour)
       if i == 1
-          removal_cost[i] = tour.cost_seq[end] +
-              tour.cost_seq[i] - cost_fn(tour[end], tour[i+1])
+          cost1 = tour.cost_seq[end]
+          cost2 = tour.cost_seq[i]
+          cost3 = cost_fn(tour[end], tour[i+1])
       elseif i == length(tour)
-          removal_cost[i] = tour.cost_seq[i-1] +
-              tour.cost_seq[i] - cost_fn(tour[i-1], tour[1])
+          cost1 = tour.cost_seq[i - 1]
+          cost2 = tour.cost_seq[i]
+          cost3 = cost_fn(tour[i - 1], tour[1])
       else
-          removal_cost[i] = tour.cost_seq[i - 1] +
-              tour.cost_seq[i] - cost_fn(tour[i-1], tour[i+1])
+          cost1 = tour.cost_seq[i - 1]
+          cost2 = tour.cost_seq[i]
+          cost3 = cost_fn(tour[i - 1], tour[i + 1])
       end
+
+      #=
+      if (isinf(cost1) || isinf(cost2)) && !isinf(cost3)
+        removal_cost[i] = -Inf
+      elseif !(isinf(cost1) || isinf(cost2)) && isinf(cost3)
+        removal_cost[i] = Inf
+        # This shouldn't happen if triangle inequality holds, unless we're removing the depot
+        # println(tour[i])
+      elseif (isinf(cost1) || isinf(cost2)) && isinf(cost3)
+        removal_cost[i] = 0.
+      else
+        removal_cost[i] = cost1 + cost2 - cost3
+      end
+      =#
+      removal_cost[i] = cost1 + cost2 - cost3
     end
+    # @assert(all(.!isnan.(removal_cost)))
     return removal_cost
 end

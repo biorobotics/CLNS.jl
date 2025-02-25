@@ -89,7 +89,7 @@ mutable struct CostDict
   tour_point_to_set_point::Dict
 end
 
-function update_cost_dict!(cost_dict::CostDict, cost_fn::Function, samples_per_set::Vector{Matrix{Float64}}, insert_tour_idx::Int64, insert_point::Vector{Float64})
+function update_cost_dict!(cost_dict::CostDict, cost_fn::Function, samples_per_set::Vector{Matrix{Float64}}, insert_tour_idx::Int64, insert_point::Vector{Float64}, sets_to_insert::Vector{Int64})
   tmp_cost_dict = deepcopy(cost_dict)
   cost_dict.set_to_tour_point = Dict()
   cost_dict.tour_point_to_set = Dict()
@@ -140,15 +140,15 @@ function update_cost_dict!(cost_dict::CostDict, cost_fn::Function, samples_per_s
 
   costs_forward, costs_backward = cost_fn(cat(samples_per_set..., dims=1), Matrix(insert_point'))
   num_points_so_far = 0
-  for set_idx=1:sets_to_insert
-    for point_idx1=1:length(samples_per_set[set_idx])
+  for set_idx=1:length(sets_to_insert)
+    set = sets_to_insert[set_idx]
+    for point_idx1=1:size(samples_per_set[set_idx], 1)
       cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx] = costs_forward[num_points_so_far + point_idx1, 1]
       if haskey(cost_dict.set_to_tour_point, (set, insert_tour_idx))
         cost_dict.set_to_tour_point[set, insert_tour_idx] = min(cost_dict.set_to_tour_point[set, insert_tour_idx], cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx])
       else
         cost_dict.set_to_tour_point[set, insert_tour_idx] = cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx]
       end
-      point_pair_idx += 1
 
       cost_dict.tour_point_to_set_point[insert_tour_idx, set, point_idx1] = costs_backward[1, num_points_so_far + point_idx1]
       if haskey(cost_dict.set_to_tour_point, (insert_tour_idx, set))

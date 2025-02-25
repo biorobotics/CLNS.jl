@@ -28,7 +28,7 @@ include("adaptive_powers.jl")
 include("insertion_deletion.jl")
 include("parameter_defaults.jl")
 
-function solver(problem_instance::String, start_time_for_tour_history::UInt64, sets::Vector{Function}, cost_fn::Function, max_threads::Int64; args...)
+function solver(problem_instance::String, start_time_for_tour_history::UInt64, sets::Vector{Function}, cost_fn::Function, max_threads::Int64, inf_val::Float64; args...)
   Random.seed!(1234)
 
   pinthreads(:cores)
@@ -70,7 +70,7 @@ function solver(problem_instance::String, start_time_for_tour_history::UInt64, s
       break
     end
 
-    best = initial_tour!(lowest, sets, cost_fn, count[:cold_trial], param, init_time + param[:max_time])
+    best = initial_tour!(lowest, sets, cost_fn, count[:cold_trial], param, init_time + param[:max_time], inf_val)
     timer = (time_ns() - start_time)/1.0e9
 		# print_cold_trial(count, param, best)
 		phase = :early
@@ -298,9 +298,9 @@ function main(args::Vector{String}, max_time::Float64, max_threads::Int64, insta
     optional_args[Symbol("max_time")] = max_time
   end
 
-  (sets, cost_fn) = instance_parser(problem_instance)
+  (sets, cost_fn, inf_val) = instance_parser(problem_instance)
 
-  timing_result = @timed GLNS.solver(problem_instance, start_time_for_tour_history, sets, cost_fn, max_threads; optional_args...)
+  timing_result = @timed GLNS.solver(problem_instance, start_time_for_tour_history, sets, cost_fn, max_threads, inf_val; optional_args...)
   println(timing_result)
   return timing_result.value
 end
