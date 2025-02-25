@@ -395,8 +395,7 @@ function print_params(param::Dict{Symbol,Any})
 	if param[:print_output] > 0
 		println("\n", "--------- Problem Data ------------")
 		println("Instance Name      : ", param[:problem_instance])
-	    println("Number of Vertices : ", param[:num_vertices])
-	    println("Number of Sets     : ", param[:num_sets])
+    println("Number of Sets     : ", param[:num_sets])
 		println("Initial Tour       : ", (param[:init_tour] == "rand" ?
 				"Random" : "Random Insertion"))
 		println("Maximum Removals   : ", param[:max_removals])
@@ -511,8 +510,8 @@ end
 
 
 """print tour summary at end of execution"""
-function print_summary(lowest::Tour, timer::Float64, member::Array{Int64,1},
-						param::Dict{Symbol,Any}, tour_history::Array{Tuple{Float64, Array{Int64,1}, Int64},1}, cost_mat_read_time::Float64, instance_read_time::Float64, num_trials_feasible::Int64, num_trials::Int64, did_timeout::Bool)
+function print_summary(lowest::Tour, timer::Float64,
+						param::Dict{Symbol,Any}, tour_history::Array{Tuple{Float64, Float64},1}, did_timeout::Bool)
   print_start_time = time_ns()
 	if param[:print_output] == 3 && !param[:timeout] && !param[:budget_met]
 		progress_bar(param[:cold_trials], 1.0, lowest.cost, round(timer, digits=1))
@@ -524,8 +523,6 @@ function print_summary(lowest::Tour, timer::Float64, member::Array{Int64,1},
 			println("Cost              : ", lowest.cost)
 			println("Total Time        : ", round(timer, digits=2), " sec")
 			println("Solver Timeout?   : ", param[:timeout])
-			println("Tour is Feasible? : ", tour_feasibility(lowest.tour, member,
-																	param[:num_sets]))
 			order_to_print = (param[:output_file] == "None" ?
 					lowest.tour : "printed to " * param[:output_file])
 			println("Output File       : ",  param[:output_file])
@@ -535,18 +532,13 @@ function print_summary(lowest::Tour, timer::Float64, member::Array{Int64,1},
 		if param[:output_file] != "None"
 			s = open(param[:output_file], "w")
 			write(s, "Problem Instance : ", param[:problem_instance], "\n")
-			write(s, "Vertices         : ", string(param[:num_vertices]), "\n")
 			write(s, "Sets             : ", string(param[:num_sets]), "\n")
 			write(s, "Comment          : To avoid ~0.5sec startup time, use the Julia REPL\n")
 			write(s, "Host Computer    : ", gethostname(), "\n")
 			write(s, "Solver Time      : ", string(round(timer, digits=3)), " sec\n")
-			write(s, "Cost Mat Rd Time : ", string(round(cost_mat_read_time, digits=3)), " sec\n")
-			write(s, "Instance Rd Time : ", string(round(instance_read_time, digits=3)), " sec\n")
 			write(s, "Timed out? : ", string(did_timeout), "\n")
 			write(s, "Tour Cost        : ", string(lowest.cost), "\n")
 			write(s, "Tour             : ", string(lowest.tour), "\n")
-			write(s, "Num Feas Trials  : ", string(num_trials_feasible), "\n")
-			write(s, "Num Trials       : ", string(num_trials), "\n")
 			write(s, "Tour History     :\n")
       for tour in tour_history
         write(s, string(tour), "\n")

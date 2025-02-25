@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Three different parameter settings for the GTSP solver
-default -- moderate runtime.  ~ 10-20 seconds for 100 sets
-fast -- very quick, lower quality solution
-slow -- slower, but potentially higher quality solution
-"""	
-function parameter_settings(num_vertices, num_sets, sets, problem_instance, args)	
+function parameter_settings(num_sets, problem_instance, args)	
 	args = Dict(args)
 	mode = get(args, :mode, "default")	
 	############ default setting #####################
@@ -113,20 +107,18 @@ function parameter_settings(num_vertices, num_sets, sets, problem_instance, args
 	param[:mode] = mode
 	param[:problem_instance] = split(problem_instance, "/")[end]
 	param[:num_sets] = num_sets
-	param[:num_vertices] = num_vertices
 	param[:output_file] = get(args, :output, "None")
 	param[:print_output] = get(args, :verbose, 0)
 	param[:epsilon] = get(args, :epsilon, 0.5)
 	param[:noise] = get(args, :noise, "Add")
 	param[:adaptive_iter] = 1
 	param[:print_time] = 5
-	param[:budget] = get(args, :budget, typemax(Int64))
+	param[:budget] = get(args, :budget, typemax(Float64))
 	param[:socket_port] = get(args, :socket_port, 65432)
 	param[:lazy_edge_eval] = get(args, :lazy_edge_eval, 1)
 	param[:new_socket_each_instance] = get(args, :new_socket_each_instance, 0)
 	param[:timeout] = false
 	param[:budget_met] = false
-	param[:min_set] = min_set(sets)
 	param[:min_removals] = (param[:max_removals] > 1 ? 2 : 1)
 	print_params(param)
 	

@@ -28,16 +28,13 @@ include("adaptive_powers.jl")
 include("insertion_deletion.jl")
 include("parameter_defaults.jl")
 
-function solver(problem_instance::String, given_initial_tours::Vector{Int64}, start_time_for_tour_history::UInt64, inf_val::Int64, num_vertices::Int64, num_sets::Int64, sets::Vector{Vector{Int64}}, dist::Matrix{Int64}, membership::Vector{Int64}, instance_read_time::Float64, cost_mat_read_time::Float64, max_threads::Int64; args...)
+function solver(problem_instance::String, start_time_for_tour_history::UInt64, sets::Vector{Function}, cost_fn::Function, max_threads::Int64; args...)
   Random.seed!(1234)
 
   pinthreads(:cores)
 
-	param = parameter_settings(num_vertices, num_sets, sets, problem_instance, args)
-  if length(given_initial_tours) != 0
-    @assert(length(given_initial_tours)%num_sets == 0)
-    param[:cold_trials] = div(length(given_initial_tours), num_sets)
-  end
+	param = parameter_settings(length(sets), problem_instance, args)
+
 	#####################################################
 	init_time = time()
 
@@ -47,25 +44,14 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
 	  		     :cold_trial => 1,
 				 :total_iter => 0,
 				 :print_time => init_time)
-	lowest = Tour(Int64[], typemax(Int64))
+	lowest = Tour(zeros(0, 0), Int64[], Float64[], typemax(Float64))
 
 	start_time = time_ns()
-	# compute set distances which will be helpful
-	setdist = set_vertex_dist(dist, num_sets, membership)
 	powers = initialize_powers(param)
   
-  sets_unshuffled = deepcopy(sets)
-  # sets_unshuffled = sets # Need to use this to match GLNS
-
-  tour_history = Array{Tuple{Float64, Array{Int64,1}, Int64},1}()
-  num_trials_feasible = 0
-  num_trials = 0
-  num_trials_lock = ReentrantLock()
-
-  set_locks = [ReentrantLock() for set=sets]
+  tour_history = Array{Tuple{Float64, Float64},1}()
 
   nthreads = min(Threads.nthreads(), max_threads)
-  # rngs = [Future.randjump(Random.default_rng(), thread_idx*big(10)^20) for thread_idx=1:nthreads]
 
   powers_lock = ReentrantLock()
   best_lock = ReentrantLock()
@@ -84,14 +70,7 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
       break
     end
 
-    if length(given_initial_tours) != 0
-      start_idx = (count[:cold_trial] - 1)*num_sets + 1
-      end_idx = count[:cold_trial]*num_sets
-      initial_tour = given_initial_tours[start_idx:end_idx]
-    else
-      initial_tour = given_initial_tours
-    end
-    best = initial_tour!(lowest, dist, sets, setdist, count[:cold_trial], param, num_sets, membership, initial_tour, inf_val, init_time + param[:max_time])
+    best = initial_tour!(lowest, sets, cost_fn, count[:cold_trial], param, init_time + param[:max_time])
     timer = (time_ns() - start_time)/1.0e9
 		# print_cold_trial(count, param, best)
 		phase = :early
@@ -115,10 +94,8 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
         phase = :late
       end
       this_phase = phase
-      @threads for thread_idx=1:nthreads
-      # for thread_idx=1:1 # Need to use this to match GLNS
-        this_num_trials_feasible = 0
-        this_num_trials = 0
+      # @threads for thread_idx=1:nthreads
+      for thread_idx=1:1
         while true
           if @lock count_lock (count[:latest_improvement] > (count[:first_improvement] ?
                                                              param[:latest_improvement] : param[:first_improvement]))
@@ -137,19 +114,7 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
           finally
             unlock(phase_lock)
           end
-          trial = remove_insert(current, dist, membership, setdist, sets, sets_unshuffled, powers, param, this_phase, powers_lock, current_lock, set_locks)
-
-          trial_infeasible = dist[trial.tour[end], trial.tour[1]] == inf_val
-          @inbounds for i in 1:length(trial.tour)-1
-            if trial_infeasible
-              break
-            end
-            trial_infeasible = dist[trial.tour[i], trial.tour[i+1]] == inf_val
-          end
-          if ~trial_infeasible
-            this_num_trials_feasible += 1
-          end
-          this_num_trials += 1
+          trial = remove_insert(current, sets, cost_fn, powers, param, this_phase, powers_lock, current_lock)
 
           # decide whether or not to accept trial
           this_temperature = 0.
@@ -160,7 +125,8 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
             if accepttrial_noparam(trial.cost, current.cost, param[:prob_accept]) ||
                accepttrial(trial.cost, current.cost, this_temperature)
               @assert(param[:mode] != "slow") # I don't want to perform an opt cycle while something is locked
-              param[:mode] == "slow" && opt_cycle!(current, dist, sets_unshuffled, membership, param, setdist, "full") # This seems incorrect. Why are we optimizing current, then setting current = trial?
+              # TODO: implement opt_cycle
+              param[:mode] == "slow" && opt_cycle!(current, sets, param, "full") # This seems incorrect. Why are we optimizing current, then setting current = trial?
               current = tour_copy(trial)
             else
               trial = tour_copy(current)
@@ -197,7 +163,8 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
           end
 
           if updated_best
-            opt_cycle!(trial, dist, sets_unshuffled, membership, param, setdist, "full")
+            # TODO: implement opt_cycle
+            # opt_cycle!(trial, sets, param, "full")
 
             lock(best_lock)
             try
@@ -208,7 +175,7 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
                 println("Thread ", thread_idx, " found new best tour after ", timer, " s with cost ", best.cost)
 
                 if param[:output_file] != "None"
-                  push!(tour_history, (round((time_ns() - start_time_for_tour_history)/1.0e9, digits=3), best.tour, best.cost))
+                  push!(tour_history, (round((time_ns() - start_time_for_tour_history)/1.0e9, digits=3), best.cost))
                 end
               end
             finally
@@ -239,13 +206,6 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
             break
           end
         end
-        lock(num_trials_lock)
-        try
-          num_trials += this_num_trials
-          num_trials_feasible += this_num_trials_feasible
-        finally
-          unlock(num_trials_lock)
-        end
       end
       print_warm_trial(count, param, best, iter_count)
       count[:warm_trial] += 1
@@ -266,13 +226,11 @@ function solver(problem_instance::String, given_initial_tours::Vector{Int64}, st
 	end
 	timer = (time_ns() - start_time)/1.0e9
   if param[:output_file] != "None"
-    push!(tour_history, (round((time_ns() - start_time_for_tour_history)/1.0e9, digits=3), lowest.tour, lowest.cost))
+    push!(tour_history, (round((time_ns() - start_time_for_tour_history)/1.0e9, digits=3), lowest.cost))
   end
 
-  print_summary(lowest, timer, membership, param, tour_history, cost_mat_read_time, instance_read_time, num_trials_feasible, num_trials, false)
+  print_summary(lowest, timer, param, tour_history, false)
 
-  @assert(lowest.cost == tour_cost(lowest.tour, dist))
-  @assert(length(lowest.tour) == num_sets)
   return lowest.cost
 end
 
@@ -331,7 +289,7 @@ function parse_cmd(ARGS)
 	return filename, optional_args
 end
 
-function main(args::Vector{String}, max_time::Float64, given_initial_tours::Vector{Int64}, npy_dist::Bool, max_threads::Int64)
+function main(args::Vector{String}, max_time::Float64, max_threads::Int64, instance_parser::Function)
   start_time_for_tour_history = time_ns()
   problem_instance, optional_args = parse_cmd(args)
   problem_instance = String(problem_instance)
@@ -340,25 +298,9 @@ function main(args::Vector{String}, max_time::Float64, given_initial_tours::Vect
     optional_args[Symbol("max_time")] = max_time
   end
 
-  read_start_time = time_ns()
-  num_vertices, num_sets, sets, dist, membership = read_file(problem_instance, !npy_dist)
-  read_end_time = time_ns()
-  instance_read_time = (read_end_time - read_start_time)/1.0e9
-  println("Reading GTSPLIB file took ", instance_read_time, " s")
+  (sets, cost_fn) = instance_parser(problem_instance)
 
-  cost_mat_read_time = 0.
-  if npy_dist
-    read_start_time = time_ns()
-    npyfile = first(problem_instance, length(problem_instance) - length(".gtsp")) * ".npy"
-    dist = npzread(npyfile)
-    read_end_time = time_ns()
-    cost_mat_read_time = (read_end_time - read_start_time)/1.0e9
-  end
-
-  inf_val = maximum(dist)
-  # dist[dist .!= inf_val] .= 0
-
-  timing_result = @timed GLNS.solver(problem_instance, given_initial_tours, start_time_for_tour_history, inf_val, num_vertices, num_sets, sets, dist, membership, instance_read_time, cost_mat_read_time, max_threads; optional_args...)
+  timing_result = @timed GLNS.solver(problem_instance, start_time_for_tour_history, sets, cost_fn, max_threads; optional_args...)
   println(timing_result)
   return timing_result.value
 end

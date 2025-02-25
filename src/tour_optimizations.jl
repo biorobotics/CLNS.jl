@@ -17,6 +17,8 @@
 Sequentially moves each vertex to its best point on the tour.
 Repeats until no more moves can be found
 """
+#=
+# TODO: implement
 function moveopt!(tour::Array{Int64, 1}, dist, sets::Vector{Vector{Int64}}, 
 				  member, setdist::Distsv)
     improvement_found = true
@@ -28,7 +30,7 @@ function moveopt!(tour::Array{Int64, 1}, dist, sets::Vector{Vector{Int64}},
         for i = start_position:length(tour)
             select_vertex = tour[i]
             delete_cost = removal_cost(tour, dist, i)
-			set_ind = member[select_vertex]
+            set_ind = member[select_vertex]
             splice!(tour, i)  # remove vertex from tour
 
             # find the best place to insert the vertex
@@ -45,8 +47,11 @@ function moveopt!(tour::Array{Int64, 1}, dist, sets::Vector{Vector{Int64}},
         end
     end
 end
+=#
 
 
+#=
+# TODO: implement
 function moveopt_rand!(tour::Array{Int64, 1}, dist, sets::Vector{Vector{Int64}}, 
 				  member, iters::Int, setdist::Distsv)
 	tour_inds = collect(1:length(tour))
@@ -56,78 +61,86 @@ function moveopt_rand!(tour::Array{Int64, 1}, dist, sets::Vector{Vector{Int64}},
 		
 		# first check if this vertex should be moved
 		delete_cost = removal_cost(tour, dist, i)
-	    set_ind = member[select_vertex]
+    set_ind = member[select_vertex]
 		splice!(tour, i)  # remove vertex from tour
-	    v, pos, cost = insert_cost_lb(tour, dist, sets[set_ind], set_ind, setdist, 
-								      select_vertex, i, delete_cost)
+    v, pos, cost = insert_cost_lb(tour, dist, sets[set_ind], set_ind, setdist, 
+                    select_vertex, i, delete_cost)
 		insert!(tour, pos, v)
-    end
+  end
 end
+=#
 
 
 """
 compute the cost of inserting vertex v into position i of tour
 """
-@inline function insert_cost_lb(tour::Array{Int64,1}, dist, set::Array{Int64, 1}, setind::Int, 
-						   setdist::Distsv, bestv::Int, bestpos::Int, best_cost::Int)
-    @inbounds for i = 1:length(tour)
-		v1 = prev_tour(tour, i) # first check lower bound
-		lb = setdist.vert_set[v1, setind] + setdist.set_vert[setind, tour[i]] - dist[v1, tour[i]]
+@inline function insert_cost_lb(tour::Tour, cost_dict::CostDict, num_samples_per_set::Int64, setind::Int, 
+                                best_set_point_idx::Int, best_tour_idx::Int, best_cost::Int)
+  @inbounds for i = 1:length(tour.tour)
+		prev_i = prev_tour(tour, i) # first check lower bound
+		lb = cost_dict.tour_point_to_set[prev_i, setind] + cost_dict.set_to_tour_point[setind, i] - tour.cost_seq[prev_i]
 		lb > best_cost && continue
 
-		for v in set
-	        insert_cost = dist[v1, v] + dist[v, tour[i]] - dist[v1, tour[i]]
-	        if insert_cost < best_cost
-				best_cost = insert_cost
-				bestv = v
-				bestpos = i
-	        end
+    for set_point_idx=1:num_samples_per_set
+      insert_cost = cost_dict.tour_point_to_set_point[prev_i, setind, set_point_idx] + cost_dict.set_point_to_tour_point[setind, set_point_idx, i] - tour.cost_seq[prev_i]
+      if insert_cost < best_cost
+        best_cost = insert_cost
+        best_set_point_idx = set_point_idx
+        best_tour_idx = i
+      end
 		end
-    end
-    return bestv, bestpos, best_cost
+  end
+  return best_set_point_idx, best_tour_idx, best_cost
 end
 
 
 """
 determine the cost of removing the vertex at position i in the tour
 """
-@inline function removal_cost(tour::Array{Int64, 1}, dist, i::Int64)
+# TODO: save the costs we compute here?
+@inline function removal_cost(tour::Array{Int64, 1}, cost_fn::Function, i::Int64)
     if i == 1
-        return dist[tour[end], tour[i]] + dist[tour[i], tour[i+1]] - dist[tour[end], tour[i+1]]
-    elseif i == length(tour)
-        return dist[tour[i-1], tour[i]] + dist[tour[i], tour[1]] - dist[tour[i-1], tour[1]]
+        return tour.cost_seq[end] + tour.cost_seq[i] - cost_fn(tour[end], tour[i+1])
+    elseif i == length(tour.tour)
+        return tour.cost_seq[i-1] + tour.cost_seq[i] - cost_fn(tour[i-1], tour[1])
     else
-        return dist[tour[i-1], tour[i]] + dist[tour[i], tour[i+1]] - dist[tour[i-1], tour[i+1]]
+        return tour.cost_seq[i-1] + tour.cost_seq[i] - cost_fn(tour[i-1], tour[i+1])
 	end
 end
 
 
 """ repeatedly perform moveopt and reopt_tour until there is no improvement """
+# TODO: implement
+#=
 function opt_cycle!(current::Tour, dist, sets::Vector{Vector{Int64}}, 
 					member, param::Dict{Symbol, Any}, setdist::Distsv, use)
 	current.cost = tour_cost(current.tour, dist)
 	prev_cost = current.cost
 	for i=1:5
 		if i % 2 == 1
-			current.tour = reopt_tour(current.tour, dist, sets, member, param)
+      # TODO: add reopt back in?
+			# current.tour = reopt_tour(current.tour, dist, sets, member, param)
 		elseif param[:mode] == "fast" || use == "partial"
 			moveopt_rand!(current.tour, dist, sets, member, param[:max_removals], setdist)
 		else
 			moveopt!(current.tour, dist, sets, member, setdist)
 		end
-		current.cost = tour_cost(current.tour, dist)
+		current.cost = sum(tour.cost_seq)
 		if i > 1 && (current.cost >= prev_cost || use == "partial")
 			return
 		end
 		prev_cost = current.cost
 	end	
 end
+=#
 
 
 """
 Given an ordering of the sets, this alg performs BFS to find the 
 optimal vertex in each set
 """
+# TODO: implement
+#=
 function reopt_tour(tour::Array{Int64,1}, dist, sets::Vector{Vector{Int64}}, 
 					member, param::Dict{Symbol, Any})
     best_tour_cost = tour_cost(tour, dist)
@@ -151,9 +164,12 @@ function reopt_tour(tour::Array{Int64,1}, dist, sets::Vector{Vector{Int64}},
     end
 	return new_tour
 end
+=#
 
 
 """ Find the set with the smallest number of vertices """
+# TODO: maybe delete, maybe use
+#=
 function min_setv(tour::Array{Int64, 1}, sets::Vector{Vector{Int64}}, member, 
 				  param::Dict{Symbol, Any})
 	min_set = param[:min_set]
@@ -162,11 +178,14 @@ function min_setv(tour::Array{Int64, 1}, sets::Vector{Vector{Int64}}, member,
 	end
 	return 1
 end
+=#
 
 
 """
 extracting a tour from the prev pointers.
 """
+# TODO: maybe delete, maybe use
+#=
 function extract_tour(prev::Array{Int64,1}, start_vertex::Int64, start_prev::Int64)
     tour = [start_vertex]
     vertex_step = start_prev
@@ -176,12 +195,14 @@ function extract_tour(prev::Array{Int64,1}, start_vertex::Int64, start_prev::Int
     end
     return reverse(tour)
 end
+=#
 
 
 """
 outputs the new cost and prev for vertex v2 after relaxing
 does not actually update the cost
 """
+#=
 @inline function relax(cost::Array{Int64, 1}, dist, set1::Array{Int64, 1}, v2::Int64)
 	v1 = set1[1]
 	min_cost = cost[v1] + dist[v1, v2]
@@ -195,11 +216,13 @@ does not actually update the cost
     end
     return min_cost, min_prev
 end
+=#
 
 
 """
 relaxes the cost of each vertex in the set set2 in-place.
 """
+#=
 @inline function relax_in!(cost::Array{Int64, 1}, dist, prev::Array{Int64, 1}, 
 				 set1::Array{Int64, 1}, set2::Array{Int64, 1})
 	@inbounds for v2 in set2
@@ -215,3 +238,4 @@ relaxes the cost of each vertex in the set set2 in-place.
         end
     end
 end
+=#

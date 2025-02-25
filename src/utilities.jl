@@ -17,22 +17,140 @@
 #########  GTSP Utilities ###########################
 
 using Base.Threads
+import Base: getindex, splice!, length, insert!, lastindex
 
 """ tour type that stores the order array and the length of the tour
 """
 mutable struct Tour
-	tour::Array{Int64,1}
-	cost::Int64
+	tour::Matrix{Float64}
+  set_seq::Vector{Int64}
+  cost_seq::Vector{Float64} # cost_seq[i] is the travel cost from point i to point i + 1
+	cost::Float64
 end
 
 function tour_copy(tour)
-  return Tour(copy(tour.tour), tour.cost)
+  return Tour(copy(tour.tour), copy(tour.set_seq), copy(tour.cost_seq), tour.cost)
+end
+
+function length(tour)
+  return length(tour.set_seq)
+end
+
+function lastindex(tour)
+  return lastindex(tour.set_seq)
 end
 
 """ return the vertex before tour[i] on tour """
 @inline function prev_tour(tour, i)
-	i != 1 && return tour[i - 1]
-	return tour[length(tour)]
+	i != 1 && return i - 1
+	return length(tour.set_seq)
+end
+
+@inline function next_tour(tour, i)
+	i != length(tour.set_seq) && return i + 1
+	return 1
+end
+
+function splice!(tour::Tour, i::Int64, cost::Float64)
+  tour.tour = cat(tour.tour[1:i-1, :], tour.tour[i + 1:end, :], dims=1)
+  splice!(tour.set_seq, i)
+  splice!(tour.cost_seq, i)
+  tour.cost_seq[prev_tour(tour, i)] = cost
+end
+
+function getindex(tour::Tour, i::Int64)
+  return tour.tour[i, :]
+end
+
+function insert!(tour::Tour, i::Int64, point::Vector{Float64}, set::Int64, pre_cost::Float64, post_cost::Float64)
+  tour.tour = cat(tour.tour[1:i-1, :], point', tour.tour[i:end, :], dims=1) # perform the insertion
+  insert!(tour.set_seq, i, set)
+  insert!(tour.cost_seq, i, post_cost)
+  tour.cost_seq[prev_tour(tour, i)] = pre_cost
+end
+
+# function length(m::Matrix)
+#   return size(m, 1)
+# end
+
+mutable struct CostDict
+  set_to_tour_point::Dict
+  tour_point_to_set::Dict
+
+  set_point_to_tour_point::Dict
+  tour_point_to_set_point::Dict
+end
+
+function update_cost_dict!(cost_dict::CostDict, cost_fn::Function, samples_per_set::Vector{Matrix{Float64}}, insert_tour_idx::Int64, insert_point::Vector{Float64})
+  tmp_cost_dict = deepcopy(cost_dict)
+  cost_dict.set_to_tour_point = Dict()
+  cost_dict.tour_point_to_set = Dict()
+  cost_dict.set_point_to_tour_point = Dict()
+  cost_dict.tour_point_to_set_point = Dict()
+
+  for (key,value) in tmp_cost_dict.set_to_tour_point
+    set_idx = key[1]
+    old_tour_idx = key[2]
+    if old_tour_idx >= insert_tour_idx
+      cost_dict.set_to_tour_point[set_idx, old_tour_idx + 1] = value
+    else
+      cost_dict.set_to_tour_point[key] = value
+    end
+  end
+
+  for (key,value) in tmp_cost_dict.tour_point_to_set
+    old_tour_idx = key[1]
+    set_idx = key[2]
+    if old_tour_idx >= insert_tour_idx
+      cost_dict.tour_point_to_set[old_tour_idx + 1, set_idx] = value
+    else
+      cost_dict.tour_point_to_set[key] = value
+    end
+  end
+
+  for (key,value) in tmp_cost_dict.set_point_to_tour_point
+    set_idx = key[1]
+    set_point_idx = key[2]
+    old_tour_idx = key[3]
+    if old_tour_idx >= insert_tour_idx
+      cost_dict.set_point_to_tour_point[set_idx, set_point_idx, old_tour_idx + 1] = value
+    else
+      cost_dict.set_point_to_tour_point[key] = value
+    end
+  end
+
+  for (key,value) in tmp_cost_dict.tour_point_to_set_point
+    old_tour_idx = key[1]
+    set_idx = key[2]
+    set_point_idx = key[3]
+    if old_tour_idx >= insert_tour_idx
+      cost_dict.tour_point_to_set_point[old_tour_idx + 1, set_idx, set_point_idx] = value
+    else
+      cost_dict.tour_point_to_set_point[key] = value
+    end
+  end
+
+  costs_forward, costs_backward = cost_fn(cat(samples_per_set..., dims=1), Matrix(insert_point'))
+  num_points_so_far = 0
+  for set_idx=1:sets_to_insert
+    for point_idx1=1:length(samples_per_set[set_idx])
+      cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx] = costs_forward[num_points_so_far + point_idx1, 1]
+      if haskey(cost_dict.set_to_tour_point, (set, insert_tour_idx))
+        cost_dict.set_to_tour_point[set, insert_tour_idx] = min(cost_dict.set_to_tour_point[set, insert_tour_idx], cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx])
+      else
+        cost_dict.set_to_tour_point[set, insert_tour_idx] = cost_dict.set_point_to_tour_point[set, point_idx1, insert_tour_idx]
+      end
+      point_pair_idx += 1
+
+      cost_dict.tour_point_to_set_point[insert_tour_idx, set, point_idx1] = costs_backward[1, num_points_so_far + point_idx1]
+      if haskey(cost_dict.set_to_tour_point, (insert_tour_idx, set))
+        cost_dict.tour_point_to_set[insert_tour_idx, set] = min(cost_dict.set_to_tour_point[insert_tour_idx, set], cost_dict.tour_point_to_set_point[insert_tour_idx, set, point_idx1])
+      else
+        cost_dict.tour_point_to_set[insert_tour_idx, set] = cost_dict.tour_point_to_set_point[insert_tour_idx, set, point_idx1]
+      end
+    end
+    num_points_so_far += size(samples_per_set[set_idx], 1)
+  end
 end
 
 ######################################################
@@ -40,111 +158,11 @@ end
 
 """ some insertions break tie by taking first minimizer -- this
 randomization helps avoid getting stuck choosing same minimizer """
-function pivot_tour!(tour::Array{Int64,1})
-	pivot = rand(1:length(tour))
-	tour = [tour[pivot:end]; tour[1:pivot-1]]
-end
-
-
-function randomize_sets!(sets::Vector{Vector{Int64}}, sets_to_insert::Array{Int64, 1}, set_locks::Vector{ReentrantLock})
-	for i in sets_to_insert
-    @lock set_locks[i] shuffle!(sets[i])
-	end
-end
-
-
-function findmember(num_vertices::Int64, sets::Vector{Vector{Int64}})
-    """  create an array containing the set number for each vertex """
-	member = zeros(Int64, num_vertices)
-    num_verts = 0
-    for i = 1:length(sets)
-        set = sets[i]
-        num_verts += length(set)
-        for vertex in set
-			if member[vertex] != 0
-				error("vertex ", vertex, " belongs to more than one set")
-			else
-				member[vertex] = i
-			end
-        end
-    end
-    return member
-end
-
-
-struct Distsv
-	set_vert::Array{Int64, 2}
-	vert_set::Array{Int64,2}
-	min_sv::Array{Int64, 2}
-end
-
-
-function set_vertex_dist(dist::Array{Int64, 2}, num_sets::Int, member::Array{Int64,1})
-    """
-	Computes the minimum distance between each set and each vertex
-	Also compute the minimum distance from a set to a vertex, ignoring direction
-	This is used in insertion to choose the next set.
-	"""
-    numv = size(dist, 1)
-    dist_set_vert = typemax(Int64) * ones(Int64, num_sets, numv)
-	mindist = typemax(Int64) * ones(Int64, num_sets, numv)
-	dist_vert_set = typemax(Int64) * ones(Int64, numv, num_sets)
-
-	for i = 1:numv
-        for j = 1:numv
-			set = member[j]
-			if dist[j,i] < dist_set_vert[set, i]
-				dist_set_vert[set, i] = dist[j,i]
-			end
-			if dist[j,i] < mindist[set, i]  # dist from set containing j to vertex i
-				mindist[set, i] = dist[j, i]
-			end
-			set = member[i]
-			if dist[j,i] < dist_vert_set[j, set]  # dist from j to set containing i
-				dist_vert_set[j, set] = dist[j,i]
-			end
-			if dist[j,i] < mindist[set,j] # record as distance from set containing i to j
-				mindist[set,j] = dist[j,i]
-			end
-		end
-	end
-    return Distsv(dist_set_vert, dist_vert_set, mindist)
-end
-
-
-
-function set_vertex_distance(dist::Array{Int64, 2}, sets::Vector{Vector{Int64}})
-    """
-	Computes the minimum distance between each set and each vertex
-	"""
-    numv = size(dist, 1)
-    nums = length(sets)
-    dist_set_vert = typemax(Int64) * ones(Int64, nums, numv)
-	# dist_vert_set = typemax(Int64) * ones(Int64, numv, nums)
-    for i = 1:nums
-        for j = 1:numv
-			for k in sets[i]
-				newdist = min(dist[k, j], dist[j, k])
-				dist_set_vert[i,j] > newdist && (dist_set_vert[i,j] = newdist)
-			end
-        end
-    end
-    return dist_set_vert
-end
-
-
-""" Find the set with the smallest number of vertices """
-function min_set(sets::Vector{Vector{Int64}})
-    min_size = length(sets[1])
-	min_index = 1
-    for i = 2:length(sets)
-		set_size = length(sets[i])
-		if set_size < min_size
-			min_size = set_size
-			min_index = i
-		end
-	end
-	return min_index
+function pivot_tour!(tour::Tour)
+	pivot = rand(1:length(tour.set_seq))
+	tour.tour = cat(tour.tour[pivot:end, :], tour.tour[1:pivot-1, :], dims=1)
+	tour.set_seq = cat(tour.set_seq[pivot:end], tour.set_seq[1:pivot-1], dims=1)
+	tour.cost_seq = cat(tour.cost_seq[pivot:end], tour.cost_seq[1:pivot-1], dims=1)
 end
 
 
@@ -154,7 +172,7 @@ end
 """
 decide whether or not to accept a trial based on simulated annealing criteria
 """
-function accepttrial(trial_cost::Int64, current_cost::Int64, temperature::Float64)
+function accepttrial(trial_cost::Float64, current_cost::Float64, temperature::Float64)
     if trial_cost <= current_cost
         accept_prob = 2.0
 	else
@@ -167,77 +185,11 @@ end
 """
 decide whether or not to accept a trial based on simple probability
 """
-function accepttrial_noparam(trial_cost::Int64, current_cost::Int64, prob_accept::Float64)
+function accepttrial_noparam(trial_cost::Float64, current_cost::Float64, prob_accept::Float64)
     if trial_cost <= current_cost
         return true
 	end
 	return (rand() < prob_accept ? true : false)
-end
-
-
-###################################################
-################ Tour checks ######################
-
-@inline function eval_edges!(tour::Tour, dist::Array{Int64,2}, confirmed_dist::Array{Bool,2}, client_socket::TCPSocket, setdist::Distsv, num_sets::Int, member::Array{Int64,1})
-    # Get unevaluated edges
-    msg = ""
-    unevaluated_edges = Array{Tuple{Int, Int}}(undef, 0)
-    for (edge_idx, (node_idx1, node_idx2)) in enumerate(zip(tour.tour, circshift(tour.tour, -1)))
-      if ~confirmed_dist[node_idx1, node_idx2]
-        msg = msg * string(node_idx1) * " " * string(node_idx2) * ","
-        push!(unevaluated_edges, (node_idx1, node_idx2))
-      end
-    end
-    if length(msg) == 0
-      tour.cost = tour_cost(tour.tour, dist)
-      return
-    end
-
-    # Remove trailing comma
-    msg = msg[1:end - 1]*"\n"
-
-    write(client_socket, msg)
-    updated_dists = [parse(Float64, updated_dist) for updated_dist in split(readline(client_socket), ' ')]
-    @assert(length(updated_dists) == length(unevaluated_edges))
-    for (updated_dist, (node_idx1, node_idx2)) in zip(updated_dists, unevaluated_edges)
-      confirmed_dist[node_idx1, node_idx2] = true
-      dist[node_idx1, node_idx2] = updated_dist
-    end
-
-    setdist = set_vertex_dist(dist, num_sets, member) # TODO: only update the setdists corresponding to updated edges
-
-    tour.cost = tour_cost(tour.tour, dist)
-end
-
-"""  Compute the length of a tour  """
-@inline function tour_cost(tour::Array{Int64,1}, dist)
-    tour_length = dist[tour[end], tour[1]]
-    @inbounds for i in 1:length(tour)-1
-    	tour_length += dist[tour[i], tour[i+1]]
-    end
-    return tour_length
-end
-
-
-"""
-Checks if a tour is feasible in that it visits each set exactly once.
-"""
-function tour_feasibility(tour::Array{Int64,1}, membership::Array{Int64,1},
-					      num_sets::Int64)
-    length(tour) != num_sets && return false
-
-    set_test = falses(num_sets)
-    for v in tour
-        set_v = membership[v]
-		if set_test[set_v]
-			return false  # a set is visited twice in the tour
-		end
-		set_test[set_v] = true
-    end
-    for visited_set in set_test
-        !visited_set && return false
-    end
-    return true
 end
 
 
@@ -252,7 +204,7 @@ end
 
 
 """ rand_select for randomize over all minimizers """
-@inline function rand_select(a::Array{Int64, 1}, val::Int)
+@inline function rand_select(a::Vector{T}, val::T) where {T}
 	inds = Int[]
 	@inbounds for i=1:length(a)
 		a[i] == val && (push!(inds, i))

@@ -118,6 +118,20 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
+[[Distances]]
+deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
+git-tree-sha1 = "c7e3a542b999843086e2f29dac96a618c105be1d"
+uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+version = "0.10.12"
+
+    [Distances.extensions]
+    DistancesChainRulesCoreExt = "ChainRulesCore"
+    DistancesSparseArraysExt = "SparseArrays"
+
+    [Distances.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
 [[Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
@@ -171,6 +185,11 @@ version = "0.1.1"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
+
+[[IterTools]]
+git-tree-sha1 = "42d5f897009e7ff2cf88db414a389e5ed1bdd023"
+uuid = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
+version = "1.10.0"
 
 [[JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
@@ -352,6 +371,24 @@ version = "1.8.0"
     [StaticArrayInterface.weakdeps]
     OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[Statistics]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+version = "1.11.1"
+
+    [Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
+
+    [Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[StatsAPI]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "1ff449ad350c9c4cbc756624d6f8a8c3ef56d3ed"
+uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
+version = "1.7.0"
 
 [[StrideArraysCore]]
 deps = ["ArrayInterface", "CloseOpenIntervals", "IfElse", "LayoutPointers", "LinearAlgebra", "ManualMemory", "SIMDTypes", "Static", "StaticArrayInterface", "ThreadingUtilities"]

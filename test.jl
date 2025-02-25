@@ -2,13 +2,137 @@ import Pkg
 Pkg.activate(".")
 using NPZ
 using GLNS
+using Distances
 
-given_initial_tours = [   0,    1,   35,   86,   18,   69,  120,  137,  103,   52,  154,  171,  222,  205,  188,  273,  239,  256,  307,  290,  341,  324,  392,  358,  375,  426,  460,  409,  443,  494,  477,  528,  562,  511,  596,  545,  579,  613,  681,  647,  630,  664,  715,  698,  749,  732,  766,  834,  817,  783,  800,  851,  885,  868,  936,  902,  919,  970,  987,  953, 1004, 1021, 1055, 1089, 1072, 1038, 1106, 1123, 1140, 1191, 1208, 1157, 1174, 1242, 1225, 1276, 1310, 1344, 1293, 1259, 1327, 1378, 1412, 1429, 1361, 1395, 1463, 1480, 1497, 1531, 1548, 1446, 1565, 1514, 1582, 1616, 1599, 1650, 1633, 1684, 1718, 1735, 1752, 1667, 1769, 1701, 1837, 1854, 1786, 1803, 1820, 1888, 1905, 1871, 1922, 1939, 1956, 1990, 2007, 1973, 2024, 2041, 2058, 2075, 2126, 2092, 2160, 2109, 2143, 2177, 2194, 2228, 2211, 2245, 2279, 2296, 2313, 2262, 2347, 2364, 2330, 2381, 2415, 2432, 2398, 2483, 2466, 2500, 2449, 2517, 2551, 2585, 2602, 2534, 2636, 2568, 2653, 2619, 2670, 2738, 2704, 2687, 2789, 2772, 2721, 2806, 2755, 2823, 2840, 2857, 2908, 2925, 2891, 2874, 3010, 2942, 2959, 2993, 2976, 3061, 3027, 3044, 3095, 3112, 3146, 3078, 3163, 3180, 3197, 3129, 3231, 3248, 3265, 3214, 3282, 3299, 3316, 3333, 3367, 3350, 3384] .+ 1
+struct SamplerFn
+ tw_p0::Matrix{Float64}
+ tw_vel::Matrix{Float64}
+ tws::Matrix{Float64}
+ tws_contiguous::Matrix{Float64}
+ tmin_contiguous::Float64
+ tmax_contiguous::Float64
+end
 
-ARGS = ["/home/cobra/GLKH-1.1/GTSPLIB/debug/custom0.gtsp", "-output=custom.tour", "-socket_port=65432", "-lazy_edge_eval=0", "-new_socket_each_instance=0", "-verbose=3", "-mode=fast"]
+function SamplerFn(tw_p0::Matrix{Float64}, tw_vel::Matrix{Float64}, tws::Matrix{Float64})
+  tws_contiguous = zeros(size(tws)...)
+  t_contiguous = 0.
+  for tw_idx=1:size(tws, 1)
+    tw = tws[tw_idx, :]
+    tws_contiguous[tw_idx,:] = [t_contiguous, t_contiguous + (tw[2] - tw[1])]
+    t_contiguous += tw[2] - tw[1]
+  end
+  tmin_contiguous = minimum([tws_contiguous[tw_idx, 1] for tw_idx=1:size(tws, 1)])
+  tmax_contiguous = maximum([tws_contiguous[tw_idx, 2] for tw_idx=1:size(tws, 1)])
+  return SamplerFn(tw_p0, tw_vel, tws, tws_contiguous, tmin_contiguous, tmax_contiguous)
+end
 
-npyfile = first(ARGS[1], length(ARGS[1]) - length(".gtsp")) * ".npy"
-dist = npzread(npyfile)
+function (f::SamplerFn)(num_samples::Int64)
+  pt_dim = 1 + size(f.tw_p0, 2) # Time, then space
+  samples = zeros(num_samples, pt_dim)
+  for pt_idx in 1:num_samples
+    t_contiguous = f.tmin_contiguous + rand()*(f.tmax_contiguous - f.tmin_contiguous)
 
-@time GLNS.main(ARGS, 10., 298309430, given_initial_tours, dist)
-@time GLNS.main(ARGS, 10., 298309430, given_initial_tours, dist)
+    found_tw = false
+    for tw_idx=1:size(f.tws, 1)
+      t0_contiguous = f.tws_contiguous[tw_idx, 1]
+      t1_contiguous = f.tws_contiguous[tw_idx, 2]
+      if t0_contiguous <= t_contiguous <= t1_contiguous
+        t0 = f.tws[tw_idx, 1]
+        t = t_contiguous - t0_contiguous + t0
+        @assert(t != 0.) # Because we only let the depot have time = 0
+        p = f.tw_p0[tw_idx, :] + f.tw_vel[tw_idx, :]*t
+        samples[pt_idx, 1] = t
+        samples[pt_idx, 2:end] = p
+        found_tw = true
+        break
+      end
+    end
+
+    @assert(found_tw)
+  end
+  return samples
+end
+
+struct CostFn
+  vmax_agent::Float64
+end
+
+function (f::CostFn)(points::Matrix{Float64})
+  dists = pairwise(euclidean, points')
+  travel_times = dists / f.vmax_agent
+
+  req_travel_times = (points[:, 1] .- points[:, 1]')'
+  dists[travel_times .> req_travel_times] .= Inf
+
+  # Assume the first point is the depot
+  dists[:, 1] .= 0
+
+  return dists
+end
+
+function (f::CostFn)(points1::Matrix{Float64}, points2::Matrix{Float64})
+  dists = pairwise(euclidean, points1', points2')
+  travel_times = dists / f.vmax_agent
+
+  req_travel_times_forward = (points2[:, 1] .- points1[:, 1]')'
+  dists_forward = copy(dists)
+  dists_forward[travel_times .> req_travel_times_forward] .= Inf
+
+  # Assume if the time equals zero, the point is the depot
+  dists_forward[:, points2[:, 1] .== 0.] .= 0.
+
+  req_travel_times_backward = -req_travel_times_forward'
+  dists_backward = copy(dists')
+  dists_backward[travel_times' .> req_travel_times_backward] .= Inf
+
+  # Assume if the time equals zero, the point is the depot
+  dists_backward[:, points1[:, 1] .== 0.] .= 0.
+
+  return dists_forward, dists_backward
+end
+
+function (f::CostFn)(point1::Vector{Float64}, point2::Vector{Float64})
+  return f(Matrix(point1'), Matrix(point2'))[1][1, 1]
+end
+
+function instance_parser(instance_path::String)
+  tw_p0 = npzread(instance_path*"/tw_p0.npy")
+  tw_vels = npzread(instance_path*"/tw_vels.npy")
+  tws = npzread(instance_path*"/tws.npy")
+  tw_to_target_ptr = npzread(instance_path*"/tw_to_target_ptr.npy") .+ 1
+  num_targets = maximum(tw_to_target_ptr)
+  target_to_tw_ptr = Vector{Vector{Int64}}()
+  for target_idx=1:num_targets
+    push!(target_to_tw_ptr, findall(tw_to_target_ptr .== target_idx))
+  end
+  depot_pos = npzread(instance_path*"/depot_pos.npy")
+  vmax_agent = npzread(instance_path*"/vmax_agent.npy")
+
+  sets = Vector{Function}()
+  depot_set(num_samples) = Matrix(cat(0., depot_pos, dims=1)')
+  push!(sets, depot_set)
+  for target_idx=1:num_targets
+    ptr = target_to_tw_ptr[target_idx]
+    fn = SamplerFn(tw_p0[ptr, :], tw_vels[ptr, :], tws[ptr, :])
+    wrapped_fn(num_samples) = fn(num_samples)
+    push!(sets, wrapped_fn)
+  end
+
+  cost_fn = CostFn(vmax_agent)
+  wrapped_cost_fn(points1, points2) = cost_fn(points1, points2)
+  wrapped_cost_fn(points) = cost_fn(points)
+
+  return sets, wrapped_cost_fn
+end
+
+instance_path = expanduser("~/catkin_ws/src/mapf/data/02_24_2025/mt_tsp_clns_test_instances/targ2_win108_random_seed0_occprob0.0_vmaxa5.0_2win_rad0/") # TODO: add an actual instance folder here
+ARGS = [instance_path, "-output=custom.tour", "-verbose=3", "-mode=fast"]
+sets, cost_fn = instance_parser(instance_path)
+# dists_forward, dists_backward = cost_fn(sets[1](1), sets[2](1)[1:1, :])
+# display(dists_forward)
+# display(dists_backward)
+# display(cost_fn(sets[1](1)[1, :], sets[2](1)[1, :]))
+# exit()
+
+GLNS.main(ARGS, 10., 1, instance_parser)
+GLNS.main(ARGS, 10., 1, instance_parser)
