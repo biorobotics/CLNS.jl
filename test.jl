@@ -58,7 +58,7 @@ struct CostFn
 end
 
 function (f::CostFn)(points::Matrix{Float64})
-  dists = pairwise(euclidean, points')
+  dists = pairwise(euclidean, points[:, 2:end]')
   travel_times = dists / f.vmax_agent
 
   req_travel_times = (points[:, 1] .- points[:, 1]')'
@@ -71,7 +71,7 @@ function (f::CostFn)(points::Matrix{Float64})
 end
 
 function (f::CostFn)(points1::Matrix{Float64}, points2::Matrix{Float64})
-  dists = pairwise(euclidean, points1', points2')
+  dists = pairwise(euclidean, points1[:, 2:end]', points2[:, 2:end]')
   travel_times = dists / f.vmax_agent
 
   req_travel_times_forward = (points2[:, 1] .- points1[:, 1]')'
