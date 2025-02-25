@@ -141,6 +141,7 @@ function solver(problem_instance::String, start_time_for_tour_history::UInt64, s
             if trial.cost < best.cost
               updated_best = true
               best = tour_copy(trial)
+              timer = (time_ns() - start_time)/1.0e9
               println("Thread ", thread_idx, " found new best tour after ", timer, " s with cost ", best.cost, " (before opt cycle)")
             end
           finally
