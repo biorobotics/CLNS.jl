@@ -24,13 +24,16 @@ tw_to_target_ptr = np.load(instance_path + '/tw_to_target_ptr.npy')
 with open(instance_path + '/target_to_tw_ptr.pkl', 'rb') as f:
   target_to_tw_ptr = pickle.load(f)
 start_pos = np.load(instance_path + '/depot_pos.npy')
+vmax_agent = np.load(instance_path + '/vmax_agent.npy')
 
 pos_trj_per_target = [PWLTrj(tw_p0[ptr], tw_vels[ptr], tws[ptr]) for ptr in target_to_tw_ptr]
 
-with open('custom.tour', 'r') as f:
+with open('validity_check_200_targets.tour', 'r') as f:
   lines = f.readlines()
 
 for line in lines:
+  if 'Tour Cost' in line:
+    cost = float(line[line.find(':') + 2:-1])
   if 'Tour' in line and 'Tour Cost' not in line and 'Tour History' not in line:
     pt_seq = np.zeros((len(target_to_tw_ptr) + 1, 3))
     start_idx = line.find('[') + 1
@@ -49,3 +52,13 @@ for target_idx, pt in zip(target_seq, pt_seq):
   t = pt[0]
   if target_idx != -1:
     assert(np.all(np.abs(pos_trj_per_target[target_idx](t) - pt[1:]) < 1e-10))
+
+check_cost = 0.
+for seq_idx, (pt1, pt2) in enumerate(zip(pt_seq[:-1], pt_seq[1:])):
+  if target_seq[seq_idx + 1] != -1:
+    check_cost += np.linalg.norm(pt2[1:] - pt1[1:])
+    assert(np.linalg.norm(pt2[1:] - pt1[1:]) <= vmax_agent*(pt2[0] - pt1[0]))
+if target_seq[0] != -1:
+  check_cost += np.linalg.norm(pt_seq[0, 1:] - pt_seq[-1, 1:])
+  assert(np.linalg.norm(pt_seq[0, 1:] - pt_seq[-1, 1:]) <= vmax_agent*(pt_seq[0, 0] - pt_seq[-1, 0]))
+assert(abs(check_cost - cost) < 1e-10)
