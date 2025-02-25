@@ -539,6 +539,7 @@ function print_summary(lowest::Tour, timer::Float64,
 			write(s, "Timed out? : ", string(did_timeout), "\n")
 			write(s, "Tour Cost        : ", string(lowest.cost), "\n")
 			write(s, "Tour             : ", string(lowest.tour), "\n")
+			write(s, "Set sequence     : ", string(lowest.set_seq), "\n")
 			write(s, "Tour History     :\n")
       for tour in tour_history
         write(s, string(tour), "\n")
