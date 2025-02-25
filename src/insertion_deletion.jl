@@ -53,18 +53,18 @@ function remove_insert(current::Tour,
   insertion = powers["insertions"][insertion_idx]
   noise = powers["noise"][noise_idx]
 	if removal.name == "distance"
-		sets_to_insert = distance_removal!(trial, cost_fn, num_removals,
-                                       removal.value)
+		sets_to_insert, removed_points = distance_removal!(trial, cost_fn, num_removals,
+                                                       removal.value)
   elseif removal.name == "worst"
-		sets_to_insert = worst_removal!(trial, cost_fn, num_removals,
-                                    removal.value)
+		sets_to_insert, removed_points = worst_removal!(trial, cost_fn, num_removals,
+                                                   removal.value)
 	else
-		sets_to_insert = segment_removal!(trial, num_removals, cost_fn)
+		sets_to_insert, removed_points = segment_removal!(trial, num_removals, cost_fn)
 	end
 
   # Compute costs between sampled sets and tour points
   num_samples = 5
-  samples_per_set = [set(num_samples) for set=sets[sets_to_insert]]
+  samples_per_set = [cat(removed_points[set_idx]', set(num_samples), dims=1) for (set_idx, set) in enumerate(sets[sets_to_insert])]
   point_dim = size(samples_per_set[1], 2)
   costs_forward, costs_backward = cost_fn(cat(samples_per_set..., dims=1), trial.tour)
   cost_dict = CostDict(Dict(), Dict(), Dict(), Dict()) 
@@ -372,6 +372,7 @@ tour.  Bias is based on the power input.  Vertices are then selected via pdf sel
 function worst_removal!(tour::Tour, cost_fn::Function,
                         num_to_remove::Int64, power::Float64)
   deleted_sets = Array{Int}(undef, 0)
+  deleted_points = Vector{Vector{Float64}}()
 	while length(deleted_sets) < num_to_remove
 		removal_costs = worst_vertices(tour, cost_fn)
 		ind = pdf_select(removal_costs, power)
@@ -382,9 +383,10 @@ function worst_removal!(tour::Tour, cost_fn::Function,
 
     prev_idx = prev_tour(tour, ind)
     next_idx = next_tour(tour, ind)
-    splice!(tour, ind, cost_fn(tour[prev_idx], tour[next_idx]))
+    deleted_point = splice!(tour, ind, cost_fn(tour[prev_idx], tour[next_idx]))
+    push!(deleted_points, deleted_point)
 	end
-  return deleted_sets
+  return deleted_sets, deleted_points
 end
 
 
@@ -392,14 +394,16 @@ end
 function segment_removal!(tour::Tour, num_to_remove::Int64, cost_fn::Function)
 	i = rand(1:length(tour))
 	deleted_sets = Array{Int}(undef, 0)
+  deleted_points = Vector{Vector{Float64}}()
 	while length(deleted_sets) < num_to_remove
 		i > length(tour) && (i = 1)
 		push!(deleted_sets, tour.set_seq[i])
     prev_idx = prev_tour(tour, i)
     next_idx = next_tour(tour, i)
-    splice!(tour, i, cost_fn(tour[prev_idx], tour[next_idx]))
+    deleted_point = splice!(tour, i, cost_fn(tour[prev_idx], tour[next_idx]))
+    push!(deleted_points, deleted_point)
 	end
-	return deleted_sets
+	return deleted_sets, deleted_points
 end
 
 
@@ -408,11 +412,14 @@ function distance_removal!(tour::Tour, cost_fn::Function,
                            num_to_remove::Int64, power::Float64)
     deleted_sets = Array{Int}(undef, 0)
 
+    deleted_points = Vector{Vector{Float64}}()
+
     seed_index = rand(1:length(tour))
     push!(deleted_sets, tour.set_seq[seed_index])
     prev_idx = prev_tour(tour, seed_index)
     next_idx = next_tour(tour, seed_index)
-    splice!(tour, seed_index, cost_fn(tour[prev_idx], tour[next_idx]))
+    deleted_point = splice!(tour, seed_index, cost_fn(tour[prev_idx], tour[next_idx]))
+    push!(deleted_points, deleted_point)
 
     while length(deleted_sets) < num_to_remove
         # pick a random point from the set of deleted vertices
@@ -427,10 +434,11 @@ function distance_removal!(tour::Tour, cost_fn::Function,
         push!(deleted_sets, tour.set_seq[del_index])
         prev_idx = prev_tour(tour, del_index)
         next_idx = next_tour(tour, del_index)
-        splice!(tour, del_index, cost_fn(tour[prev_idx], tour[next_idx]))
+        deleted_point = splice!(tour, del_index, cost_fn(tour[prev_idx], tour[next_idx]))
+        push!(deleted_points, deleted_point)
     end
 
-    return deleted_sets
+    return deleted_sets, deleted_points
 end
 
 

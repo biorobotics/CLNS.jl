@@ -51,22 +51,28 @@ end
 	return 1
 end
 
-function splice!(tour::Tour, i::Int64, cost::Float64)
-  tour.tour = cat(tour.tour[1:i-1, :], tour.tour[i + 1:end, :], dims=1)
-  splice!(tour.set_seq, i)
-  splice!(tour.cost_seq, i)
-  tour.cost_seq[prev_tour(tour, i)] = cost
-end
-
 function getindex(tour::Tour, i::Int64)
   return tour.tour[i, :]
 end
 
+function splice!(tour::Tour, i::Int64, cost::Float64)
+  prev_i = prev_tour(tour, i)
+  deleted_point = tour[i]
+  tour.cost = tour.cost - tour.cost_seq[prev_i] - tour.cost_seq[i] + cost
+  tour.tour = cat(tour.tour[1:i-1, :], tour.tour[i + 1:end, :], dims=1)
+  splice!(tour.set_seq, i)
+  tour.cost_seq[prev_i] = cost
+  splice!(tour.cost_seq, i)
+  return deleted_point
+end
+
 function insert!(tour::Tour, i::Int64, point::Vector{Float64}, set::Int64, pre_cost::Float64, post_cost::Float64)
+  prev_i = prev_tour(tour, i)
+  tour.cost = tour.cost - tour.cost_seq[prev_i] + pre_cost + post_cost
   tour.tour = cat(tour.tour[1:i-1, :], point', tour.tour[i:end, :], dims=1) # perform the insertion
   insert!(tour.set_seq, i, set)
+  tour.cost_seq[prev_i] = pre_cost
   insert!(tour.cost_seq, i, post_cost)
-  tour.cost_seq[prev_tour(tour, i)] = pre_cost
 end
 
 # function length(m::Matrix)
